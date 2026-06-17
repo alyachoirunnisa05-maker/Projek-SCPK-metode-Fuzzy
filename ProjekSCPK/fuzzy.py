@@ -4,25 +4,31 @@ import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 
 
-# Bobot tiap himpunan fuzzy, dipakai untuk generate rule base otomatis.
-# 2 = paling menguntungkan, 1 = sedang, 0 = paling tidak menguntungkan
 BOBOT = {
     'performa':       {'rendah': 0, 'sedang': 1, 'tinggi': 2},
-    'biaya':          {'murah': 2, 'sedang': 1, 'mahal': 0},   # murah = paling baik
-    'waktu_render':   {'cepat': 2, 'sedang': 1, 'lambat': 0},  # cepat = paling baik
+    'biaya':          {'murah': 2, 'sedang': 1, 'mahal': 0},
+    'waktu_render':   {'cepat': 2, 'sedang': 1, 'lambat': 0},
     'kompatibilitas': {'rendah': 0, 'sedang': 1, 'tinggi': 2},
     'umur_pakai':     {'pendek': 0, 'sedang': 1, 'panjang': 2},
 }
 
-# Batas total bobot (rentang 0-10) untuk menentukan kategori output skor
-BATAS_BURUK_MAX = 3   # total bobot 0-3 -> 'buruk'
-BATAS_CUKUP_MAX = 6   # total bobot 4-6 -> 'cukup'
-# total bobot 7-10 -> 'baik'
+BATAS_BURUK_MAX = 3
+BATAS_CUKUP_MAX = 6
+
+# Cache rule definitions di level modul, supaya _generate_rule_definitions()
+# tidak dihitung ulang setiap kali get_rule_base_table() dipanggil.
+_RULE_DEFINITIONS_CACHE = None
 
 
 def _generate_rule_definitions():
     """Generate semua kombinasi rule (3^5 = 243) sekali, dipakai 2 tempat:
-    bangun_sistem_fuzzy() (untuk ctrl.Rule) dan get_rule_base_table()."""
+    bangun_sistem_fuzzy() (untuk ctrl.Rule) dan get_rule_base_table().
+    Hasilnya disimpan di cache modul karena isinya selalu sama (BOBOT tidak
+    berubah saat runtime), jadi tidak perlu dihitung ulang berkali-kali."""
+    global _RULE_DEFINITIONS_CACHE
+    if _RULE_DEFINITIONS_CACHE is not None:
+        return _RULE_DEFINITIONS_CACHE
+
     rule_base = []
     for p in BOBOT['performa']:
         for b in BOBOT['biaya']:
@@ -43,31 +49,35 @@ def _generate_rule_definitions():
                             'kompatibilitas': k, 'umur_pakai': u,
                             'total_bobot': total, 'hasil': hasil,
                         })
+    _RULE_DEFINITIONS_CACHE = rule_base
     return rule_base
 
 
 def bangun_sistem_fuzzy():
     """
-    Membangun seluruh komponen fuzzy Mamdani dalam satu fungsi:
-      1. Universe (semesta pembicaraan)
-      2. Membership function tiap himpunan
-      3. Rule base -> ControlSystem
+    Membangun seluruh komponen fuzzy Mamdani dalam satu fungsi.
 
-    Panggil fungsi ini SEKALI saja (cache di Streamlit), karena membangun
-    243 rule cukup berat kalau diulang tiap kali ada input baru.
+    CATATAN OPTIMASI:
+    Resolusi universe 'performa' dan 'biaya' diperkecil (step dinaikkan)
+    dari step=1 menjadi step=10 dan step=5000. Range (batas bawah/atas)
+    TIDAK berubah, dan semua breakpoint membership function (trapmf/trimf)
+    tetap kelipatan dari step baru, sehingga bentuk kurva fuzzy-nya
+    100% identik dengan sebelumnya — hanya jumlah titik di array yang
+    berkurang drastis (10.001 -> 1.001 dan 5.000.001 -> 1.001).
+    Ini membuat pembuatan membership function, perhitungan inferensi,
+    dan terutama proses plotting di app.py jadi jauh lebih ringan,
+    tanpa mengubah hasil skor sama sekali.
     """
 
-    # 1. UNIVERSE
-    performa       = ctrl.Antecedent(np.arange(0, 10001, 1),   'performa')
-    biaya          = ctrl.Antecedent(np.arange(0, 5000001, 1), 'biaya')
+    # 1. UNIVERSE (resolusi performa & biaya diperkecil, range tetap sama)
+    performa       = ctrl.Antecedent(np.arange(0, 10001, 10),   'performa')
+    biaya          = ctrl.Antecedent(np.arange(0, 5000001, 5000), 'biaya')
     waktu_render   = ctrl.Antecedent(np.arange(0, 61, 1),      'waktu_render')
     kompatibilitas = ctrl.Antecedent(np.arange(0, 101, 1),     'kompatibilitas')
     umur_pakai     = ctrl.Antecedent(np.arange(0, 11, 1),      'umur_pakai')
     skor           = ctrl.Consequent(np.arange(0, 101, 1),     'skor')
 
-    # 2. MEMBERSHIP FUNCTION
-    # Himpunan ekstrem (rendah/tinggi, murah/mahal, dst) pakai trapmf
-    # supaya ada area datar (membership = 1). Himpunan "sedang" pakai trimf.
+    # 2. MEMBERSHIP FUNCTION (parameter SAMA PERSIS seperti sebelumnya)
     performa['rendah']  = fuzz.trapmf(performa.universe, [0, 0, 2000, 5000])
     performa['sedang']  = fuzz.trimf(performa.universe, [2000, 5000, 8000])
     performa['tinggi']  = fuzz.trapmf(performa.universe, [5000, 8000, 10000, 10000])
@@ -92,7 +102,7 @@ def bangun_sistem_fuzzy():
     skor['cukup'] = fuzz.trimf(skor.universe, [20, 50, 80])
     skor['baik']  = fuzz.trapmf(skor.universe, [50, 80, 100, 100])
 
-    # 3. RULE BASE -> ControlSystem
+    # 3. RULE BASE -> ControlSystem (logic tidak berubah)
     rule_base = [
         ctrl.Rule(
             performa[d['performa']] & biaya[d['biaya']] & waktu_render[d['waktu_render']]
@@ -119,10 +129,7 @@ def get_rule_base_table():
 
 def hitung_skor(sistem_ctrl, performa_val, biaya_val, waktu_render_val,
                 kompatibilitas_val, umur_pakai_val):
-    """
-    Fuzzifikasi -> Inferensi (rule base) -> Defuzzifikasi.
-    Mengembalikan skor akhir (0-100).
-    """
+    """Fuzzifikasi -> Inferensi (rule base) -> Defuzzifikasi. Tidak diubah."""
     sim = ctrl.ControlSystemSimulation(sistem_ctrl)
     sim.input['performa']       = float(performa_val)
     sim.input['biaya']          = float(biaya_val)

@@ -6,12 +6,37 @@ from fuzzy import bangun_sistem_fuzzy, hitung_skor, get_rule_base_table
 st.set_page_config(page_title="SCPK", page_icon="💻", layout="wide")
 
 
-# Bangun sistem fuzzy sekali saja (243 rule), lalu disimpan di cache resource
 @st.cache_resource
 def get_sistem():
     return bangun_sistem_fuzzy()
 
 sistem_ctrl, performa, biaya, waktu_render, kompatibilitas, umur_pakai, skor = get_sistem()
+
+
+# OPTIMASI: get_rule_base_table() di-cache, dan dipanggil SEKALI saja,
+# lalu dipakai ulang untuk hitung len() maupun ditampilkan di expander.
+# Sebelumnya fungsi ini dipanggil 2x dan tiap panggilan generate ulang
+# 243 baris dari nol.
+@st.cache_data
+def get_rule_table_cached():
+    return get_rule_base_table()
+
+rule_table = get_rule_table_cached()
+
+
+# OPTIMASI: hasil hitung_skor() di-cache berdasarkan nilai input saja.
+# Parameter dengan underscore di depan (_sistem_ctrl) tidak ikut dihitung
+# sebagai cache key oleh Streamlit, jadi caching tetap jalan walau objek
+# ControlSystem tidak bisa di-hash. Manfaatnya: Streamlit rerun seluruh
+# script tiap ada interaksi (klik tombol, dsb), tanpa cache ini ke-4
+# alternatif akan dihitung ulang (243 rule x 4 baris) setiap rerun
+# meskipun datanya tidak berubah.
+@st.cache_data
+def hitung_skor_cached(_sistem_ctrl, performa_val, biaya_val, waktu_render_val,
+                        kompatibilitas_val, umur_pakai_val):
+    return hitung_skor(_sistem_ctrl, performa_val, biaya_val, waktu_render_val,
+                        kompatibilitas_val, umur_pakai_val)
+
 
 if "data" not in st.session_state:
     st.session_state.data = pd.DataFrame({
@@ -50,7 +75,6 @@ if st.button("Simpan Perubahan"):
 st.divider()
 st.header("2. Grafik Derajat Keanggotaan")
 
-# Daftar variabel untuk diplot: (label, objek fuzzy, nama-nama himpunan)
 variabel_plot = {
     "Performa": (performa, ["rendah", "sedang", "tinggi"]),
     "Biaya": (biaya, ["murah", "sedang", "mahal"]),
@@ -75,17 +99,17 @@ for i, (label, (var, set_names)) in enumerate(variabel_plot.items()):
 st.divider()
 st.header("Rule Base Fuzzy")
 st.write(
-    f"Sistem ini memiliki total **{len(get_rule_base_table())} rule** "
+    f"Sistem ini memiliki total **{len(rule_table)} rule** "
     "yang di-generate otomatis dari seluruh kombinasi himpunan fuzzy "
     "(3 himpunan x 5 variabel input = 3^5 kombinasi)."
 )
 with st.expander("Lihat semua rule"):
-    st.dataframe(get_rule_base_table(), use_container_width=True)
+    st.dataframe(rule_table, use_container_width=True)
 st.divider()
 st.header("3. Hasil Akhir")
 hasil = []
 for _, row in st.session_state.data.iterrows():
-    nilai_skor = hitung_skor(
+    nilai_skor = hitung_skor_cached(
         sistem_ctrl,
         row['Performa'],
         row['Biaya'],
