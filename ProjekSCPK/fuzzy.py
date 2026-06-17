@@ -12,8 +12,11 @@ BOBOT = {
     'umur_pakai':     {'pendek': 0, 'sedang': 1, 'panjang': 2},
 }
 
-BATAS_BURUK_MAX = 3
-BATAS_CUKUP_MAX = 6
+# Ubah bagian ini agar pembagian total_bobot (0-10) lebih presisi untuk 4 himpunan
+BATAS_BURUK_MAX = 2        # Total bobot 0 - 2  -> Buruk
+BATAS_CUKUP_MAX = 5        # Total bobot 3 - 5  -> Cukup
+BATAS_BAIK_MAX = 8         # Total bobot 6 - 8  -> Baik
+                           # Total bobot 9 - 10 -> Sangat Baik
 
 # Cache rule definitions di level modul, supaya _generate_rule_definitions()
 # tidak dihitung ulang setiap kali get_rule_base_table() dipanggil.
@@ -42,8 +45,10 @@ def _generate_rule_definitions():
                             hasil = 'buruk'
                         elif total <= BATAS_CUKUP_MAX:
                             hasil = 'cukup'
-                        else:
+                        elif total <= BATAS_BAIK_MAX:  # <-- Tambahan kondisi baru
                             hasil = 'baik'
+                        else:
+                            hasil = 'sangat baik'       # <-- Hasil baru jika total bobot 9 atau 10
                         rule_base.append({
                             'performa': p, 'biaya': b, 'waktu_render': w,
                             'kompatibilitas': k, 'umur_pakai': u,
@@ -98,9 +103,10 @@ def bangun_sistem_fuzzy():
     umur_pakai['sedang']  = fuzz.trimf(umur_pakai.universe, [2, 5, 8])
     umur_pakai['panjang'] = fuzz.trapmf(umur_pakai.universe, [5, 8, 10, 10])
 
-    skor['buruk'] = fuzz.trapmf(skor.universe, [0, 0, 20, 50])
-    skor['cukup'] = fuzz.trimf(skor.universe, [20, 50, 80])
-    skor['baik']  = fuzz.trapmf(skor.universe, [50, 80, 100, 100])
+    skor['buruk']       = fuzz.trapmf(skor.universe, [0, 0, 15, 40])
+    skor['cukup']       = fuzz.trimf(skor.universe, [20, 45, 70])
+    skor['baik']        = fuzz.trimf(skor.universe, [50, 75, 90])
+    skor['sangat baik'] = fuzz.trapmf(skor.universe, [75, 90, 100, 100])
 
     # 3. RULE BASE -> ControlSystem (logic tidak berubah)
     rule_base = [

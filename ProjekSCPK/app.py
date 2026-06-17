@@ -54,13 +54,14 @@ st.dataframe(st.session_state.data, use_container_width=True)
 st.header("Input Data")
 nama = st.selectbox("Pilih Alternatif", ["RAM", "SSD", "GPU", "CPU"])
 c1, c2 = st.columns(2)
+data_terpilih = st.session_state.data[st.session_state.data["Alternatif"] == nama].iloc[0]
 with c1:
-    performa_input = st.number_input("Performa", min_value=0)
-    biaya_input = st.number_input("Biaya", min_value=0)
-    render_input = st.number_input("Waktu Render", min_value=0)
+    performa_input = st.number_input("Performa", min_value=0, value=int(data_terpilih["Performa"]))
+    biaya_input = st.number_input("Biaya", min_value=0, value=int(data_terpilih["Biaya"]))
+    render_input = st.number_input("Waktu Render", min_value=0, value=int(data_terpilih["Waktu Render"]))
 with c2:
-    kompatibilitas_input = st.number_input("Kompatibilitas", min_value=0)
-    umur_input = st.number_input("Umur Pakai", min_value=0)
+    kompatibilitas_input = st.number_input("Kompatibilitas", min_value=0, value=int(data_terpilih["Kompatibilitas"]))
+    umur_input = st.number_input("Umur Pakai", min_value=0, value=int(data_terpilih["Umur Pakai"]))
 if st.button("Simpan Perubahan"):
     idx = st.session_state.data[
         st.session_state.data["Alternatif"] == nama
@@ -84,18 +85,83 @@ variabel_plot = {
     "Skor Rekomendasi": (skor, ["buruk", "cukup", "baik"]),
 }
 
+# ==================== MODIFIKASI BAGIAN GRAFIK DERAJAT KEANGGOTAAN ====================
+st.divider()
+st.header("2. Grafik Derajat Keanggotaan & Wiring Fuzzifikasi")
+st.caption("Garis merah putus-putus menunjukkan nilai input saat ini beserta posisi derajat keanggotaannya (μ).")
+
+# Definisikan mapping variabel ke input terikat yang ada di form
+variabel_plot = {
+    "Performa": (performa, ["rendah", "sedang", "tinggi"], performa_input),
+    "Biaya": (biaya, ["murah", "sedang", "mahal"], biaya_input),
+    "Waktu Render": (waktu_render, ["cepat", "sedang", "lambat"], render_input),
+    "Kompatibilitas": (kompatibilitas, ["rendah", "sedang", "tinggi"], kompatibilitas_input),
+    "Umur Pakai": (umur_pakai, ["pendek", "sedang", "panjang"], umur_input),
+    
+    # GANTI BARIS INI: Tambahkan "sangat baik" ke dalam list
+    "Skor Rekomendasi": (skor, ["buruk", "cukup", "baik", "sangat baik"], None), 
+}
+
+import skfuzzy as fuzz  # Pastikan skfuzzy diimport untuk memanggil interp_membership
+
 col1, col2 = st.columns(2)
-for i, (label, (var, set_names)) in enumerate(variabel_plot.items()):
-    fig, ax = plt.subplots(figsize=(5, 3))
+for i, (label, (var, set_names, current_input)) in enumerate(variabel_plot.items()):
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    
+    # Plot kurva keanggotaan dasar
     for nama_himpunan in set_names:
         ax.plot(var.universe, var[nama_himpunan].mf, label=nama_himpunan)
+    
+    # WIRING FUZZIFIKASI: Gambar nilai input jika variabel tersebut memiliki input (bukan output skor)
+    if current_input is not None:
+        # Batasi nilai input agar tidak keluar dari range universe (mencegah error plotting)
+        input_clamped = max(min(current_input, var.universe[-1]), var.universe[0])
+        
+        # Gambar garis vertikal penanda nilai input
+        ax.axvline(x=input_clamped, color='red', linestyle='--', alpha=0.7, label=f'Input: {current_input}')
+        
+        # Hitung dan plot titik potong (wiring) untuk masing-masing himpunan fuzzy
+        # Ditambahkan tracker offset agar teks tidak saling tumpang tindih (overlap)
+        label_count = 0 
+        
+        for nama_himpunan in set_names:
+            # Menggunakan interp_membership untuk mencari nilai mu (y) dari nilai x (input)
+            mu_val = fuzz.interp_membership(var.universe, var[nama_himpunan].mf, input_clamped)
+            
+            if mu_val > 0: # Hanya tampilkan jika nilai keanggotaannya lebih dari 0
+                # Gambar titik potong di kurva
+                ax.plot(input_clamped, mu_val, 'ro', markersize=5, zorder=5) 
+                
+                # Jika ini adalah label ke-2 atau ke-3 yang aktif di titik yang sama, 
+                # kita naikkan posisi teksnya (Y + 0.12 * label_count) agar tidak bertumpuk.
+                y_text_position = mu_val + 0.05 + (0.12 * label_count)
+                
+                # Beri teks keterangan nilai mu di samping titik
+                ax.text(
+                    input_clamped, 
+                    y_text_position, 
+                    f"μ {nama_himpunan}: {mu_val:.2f}", 
+                    fontsize=8, 
+                    weight='bold', 
+                    color='black',
+                    bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.2', edgecolor='red', lw=0.5),
+                    zorder=6
+                )
+                
+                # Naikkan counter jika label sudah digambar
+                label_count += 1
+
     ax.set_title(label)
-    ax.legend(fontsize=8)
-    ax.grid(True)
+    ax.set_ylim(-0.1, 1.2) # Beri ruang vertikal agar teks tidak terpotong
+    ax.legend(fontsize=8, loc='upper right')
+    ax.grid(True, linestyle=':', alpha=0.6)
+    
+    # Bagi visualisasi ke dalam 2 kolom Streamlit
     if i % 2 == 0:
         col1.pyplot(fig)
     else:
         col2.pyplot(fig)
+
 st.divider()
 st.header("Rule Base Fuzzy")
 st.write(
