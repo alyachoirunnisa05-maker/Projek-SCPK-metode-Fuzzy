@@ -12,14 +12,12 @@ BOBOT = {
     'umur_pakai':     {'pendek': 0, 'sedang': 1, 'panjang': 2},
 }
 
-# Ubah bagian ini agar pembagian total_bobot (0-10) lebih presisi untuk 4 himpunan
 BATAS_BURUK_MAX = 2        # Total bobot 0 - 2  -> Buruk
 BATAS_CUKUP_MAX = 5        # Total bobot 3 - 5  -> Cukup
 BATAS_BAIK_MAX = 8         # Total bobot 6 - 8  -> Baik
                            # Total bobot 9 - 10 -> Sangat Baik
 
-# Cache rule definitions di level modul, supaya _generate_rule_definitions()
-# tidak dihitung ulang setiap kali get_rule_base_table() dipanggil.
+# Cache rule definitions di level modul, supaya _generate_rule_definitions() tidak dihitung ulang setiap kali get_rule_base_table() dipanggil.
 _RULE_DEFINITIONS_CACHE = None
 
 
@@ -45,10 +43,10 @@ def _generate_rule_definitions():
                             hasil = 'buruk'
                         elif total <= BATAS_CUKUP_MAX:
                             hasil = 'cukup'
-                        elif total <= BATAS_BAIK_MAX:  # <-- Tambahan kondisi baru
+                        elif total <= BATAS_BAIK_MAX:
                             hasil = 'baik'
                         else:
-                            hasil = 'sangat baik'       # <-- Hasil baru jika total bobot 9 atau 10
+                            hasil = 'sangat baik'    
                         rule_base.append({
                             'performa': p, 'biaya': b, 'waktu_render': w,
                             'kompatibilitas': k, 'umur_pakai': u,
@@ -59,21 +57,6 @@ def _generate_rule_definitions():
 
 
 def bangun_sistem_fuzzy():
-    """
-    Membangun seluruh komponen fuzzy Mamdani dalam satu fungsi.
-
-    CATATAN OPTIMASI:
-    Resolusi universe 'performa' dan 'biaya' diperkecil (step dinaikkan)
-    dari step=1 menjadi step=10 dan step=5000. Range (batas bawah/atas)
-    TIDAK berubah, dan semua breakpoint membership function (trapmf/trimf)
-    tetap kelipatan dari step baru, sehingga bentuk kurva fuzzy-nya
-    100% identik dengan sebelumnya — hanya jumlah titik di array yang
-    berkurang drastis (10.001 -> 1.001 dan 5.000.001 -> 1.001).
-    Ini membuat pembuatan membership function, perhitungan inferensi,
-    dan terutama proses plotting di app.py jadi jauh lebih ringan,
-    tanpa mengubah hasil skor sama sekali.
-    """
-
     # 1. UNIVERSE (resolusi performa & biaya diperkecil, range tetap sama)
     performa       = ctrl.Antecedent(np.arange(0, 10001, 10),   'performa')
     biaya          = ctrl.Antecedent(np.arange(0, 5000001, 5000), 'biaya')
@@ -108,7 +91,7 @@ def bangun_sistem_fuzzy():
     skor['baik']        = fuzz.trimf(skor.universe, [50, 75, 90])
     skor['sangat baik'] = fuzz.trapmf(skor.universe, [75, 90, 100, 100])
 
-    # 3. RULE BASE -> ControlSystem (logic tidak berubah)
+    # 3. RULE BASE -> ControlSystem
     rule_base = [
         ctrl.Rule(
             performa[d['performa']] & biaya[d['biaya']] & waktu_render[d['waktu_render']]

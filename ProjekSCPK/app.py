@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import skfuzzy as fuzz 
 from fuzzy import bangun_sistem_fuzzy, hitung_skor, get_rule_base_table
 
 st.set_page_config(page_title="SCPK", page_icon="💻", layout="wide")
@@ -15,8 +16,6 @@ sistem_ctrl, performa, biaya, waktu_render, kompatibilitas, umur_pakai, skor = g
 
 # OPTIMASI: get_rule_base_table() di-cache, dan dipanggil SEKALI saja,
 # lalu dipakai ulang untuk hitung len() maupun ditampilkan di expander.
-# Sebelumnya fungsi ini dipanggil 2x dan tiap panggilan generate ulang
-# 243 baris dari nol.
 @st.cache_data
 def get_rule_table_cached():
     return get_rule_base_table()
@@ -25,12 +24,6 @@ rule_table = get_rule_table_cached()
 
 
 # OPTIMASI: hasil hitung_skor() di-cache berdasarkan nilai input saja.
-# Parameter dengan underscore di depan (_sistem_ctrl) tidak ikut dihitung
-# sebagai cache key oleh Streamlit, jadi caching tetap jalan walau objek
-# ControlSystem tidak bisa di-hash. Manfaatnya: Streamlit rerun seluruh
-# script tiap ada interaksi (klik tombol, dsb), tanpa cache ini ke-4
-# alternatif akan dihitung ulang (243 rule x 4 baris) setiap rerun
-# meskipun datanya tidak berubah.
 @st.cache_data
 def hitung_skor_cached(_sistem_ctrl, performa_val, biaya_val, waktu_render_val,
                         kompatibilitas_val, umur_pakai_val):
@@ -84,13 +77,13 @@ variabel_plot = {
     "Umur Pakai": (umur_pakai, ["pendek", "sedang", "panjang"]),
     "Skor Rekomendasi": (skor, ["buruk", "cukup", "baik"]),
 }
-
-# ==================== MODIFIKASI BAGIAN GRAFIK DERAJAT KEANGGOTAAN ====================
 st.divider()
+
+
 st.header("2. Grafik Derajat Keanggotaan & Wiring Fuzzifikasi")
 st.caption("Garis merah putus-putus menunjukkan nilai input saat ini beserta posisi derajat keanggotaannya (μ).")
 
-# Definisikan mapping variabel ke input terikat yang ada di form
+# Definisikan mapping variabel ke input yang ada di form
 variabel_plot = {
     "Performa": (performa, ["rendah", "sedang", "tinggi"], performa_input),
     "Biaya": (biaya, ["murah", "sedang", "mahal"], biaya_input),
@@ -98,11 +91,9 @@ variabel_plot = {
     "Kompatibilitas": (kompatibilitas, ["rendah", "sedang", "tinggi"], kompatibilitas_input),
     "Umur Pakai": (umur_pakai, ["pendek", "sedang", "panjang"], umur_input),
     
-    # GANTI BARIS INI: Tambahkan "sangat baik" ke dalam list
     "Skor Rekomendasi": (skor, ["buruk", "cukup", "baik", "sangat baik"], None), 
 }
 
-import skfuzzy as fuzz  # Pastikan skfuzzy diimport untuk memanggil interp_membership
 
 col1, col2 = st.columns(2)
 for i, (label, (var, set_names, current_input)) in enumerate(variabel_plot.items()):
@@ -112,7 +103,7 @@ for i, (label, (var, set_names, current_input)) in enumerate(variabel_plot.items
     for nama_himpunan in set_names:
         ax.plot(var.universe, var[nama_himpunan].mf, label=nama_himpunan)
     
-    # WIRING FUZZIFIKASI: Gambar nilai input jika variabel tersebut memiliki input (bukan output skor)
+    # WIRING FUZZIFIKASI: Gambar nilai input jika variabel tersebut memiliki input
     if current_input is not None:
         # Batasi nilai input agar tidak keluar dari range universe (mencegah error plotting)
         input_clamped = max(min(current_input, var.universe[-1]), var.universe[0])
@@ -132,8 +123,7 @@ for i, (label, (var, set_names, current_input)) in enumerate(variabel_plot.items
                 # Gambar titik potong di kurva
                 ax.plot(input_clamped, mu_val, 'ro', markersize=5, zorder=5) 
                 
-                # Jika ini adalah label ke-2 atau ke-3 yang aktif di titik yang sama, 
-                # kita naikkan posisi teksnya (Y + 0.12 * label_count) agar tidak bertumpuk.
+                # menaikkan label yang aktif biar ga tumpang tindih
                 y_text_position = mu_val + 0.05 + (0.12 * label_count)
                 
                 # Beri teks keterangan nilai mu di samping titik
