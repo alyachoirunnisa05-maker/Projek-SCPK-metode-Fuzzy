@@ -67,18 +67,6 @@ if st.button("Simpan Perubahan"):
     st.success(f"Data {nama} berhasil diperbarui")
     st.rerun()
 st.divider()
-st.header("2. Grafik Derajat Keanggotaan")
-
-variabel_plot = {
-    "Performa": (performa, ["rendah", "sedang", "tinggi"]),
-    "Biaya": (biaya, ["murah", "sedang", "mahal"]),
-    "Waktu Render": (waktu_render, ["cepat", "sedang", "lambat"]),
-    "Kompatibilitas": (kompatibilitas, ["rendah", "sedang", "tinggi"]),
-    "Umur Pakai": (umur_pakai, ["pendek", "sedang", "panjang"]),
-    "Skor Rekomendasi": (skor, ["buruk", "cukup", "baik"]),
-}
-st.divider()
-
 
 st.header("2. Grafik Derajat Keanggotaan & Wiring Fuzzifikasi")
 st.caption("Garis merah putus-putus menunjukkan nilai input saat ini beserta posisi derajat keanggotaannya (μ).")
